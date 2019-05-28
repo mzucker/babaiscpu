@@ -20,8 +20,8 @@ int main(int argc, char** argv) {
     game_parse(infile, &desc, &objects);
 
     game_state_init(&state, desc, objects);
-    game_print_rules(&state);
     game_print(&state);
+    game_print_rules(&state);
 
     free(desc);
     free(objects);

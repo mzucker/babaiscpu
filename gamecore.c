@@ -270,6 +270,8 @@ void game_print_rules(const game_state_t* state) {
 
     const game_desc_t* desc = state->desc;
 
+    printf("current rules:\n");
+
     for (size_t sitem=0; sitem<=desc->num_item_types; ++sitem) {
 
         const char* sname;
@@ -282,7 +284,7 @@ void game_print_rules(const game_state_t* state) {
 
         for (size_t attr=0; attr<NUM_ATTR_TYPES; ++attr) {
             if (state->attrs[sitem] & (1 << attr)) {
-                printf("%s IS %s\n", sname, ATTR_NAMES[attr]);
+                printf("  %s IS %s\n", sname, ATTR_NAMES[attr]);
             }
         }
 
@@ -291,7 +293,7 @@ void game_print_rules(const game_state_t* state) {
             int turn_into = state->xforms[sitem];
 
             if (turn_into) {
-                printf("%s IS %s\n", sname, desc->item_info[turn_into-1].name);
+                printf("  %s IS %s\n", sname, desc->item_info[turn_into-1].name);
             }
             
         }
@@ -373,7 +375,6 @@ void game_parse(const char* filename,
         ++padded_cols;
     }
     assert(tok == '\n');
-    printf("padded width = %d\n", (int)padded_cols);
 
     desc->cols = padded_cols - 2;
     desc->rows = 0;
