@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
     game_print(&state);
 
     free(desc);
-    game_objects_destroy(objects);
+    free(objects);
 
     return 0;
     

@@ -71,22 +71,24 @@ int lookup_word_type(char c) {
 // objects uses 1-based indexing
 object_t* game_objects_alloc(size_t max_objects) {
     object_t* base = (object_t*)calloc(sizeof(object_t), max_objects);
-    return base - 1;
+    return base;
 }
 
 void game_objects_destroy(object_t* objects) {
-    free(objects + 1);
+    free(objects);
 }
 
 
 
 //////////////////////////////////////////////////////////////////////
 
-void parse_nouns(game_state_t* state,
-                 size_t row, size_t col,
-                 int delta_row, int delta_col,
-                 item_flags_t* items,
-                 attr_flags_t* attrs) {
+#define OBJECT_NEXT(state, object) ((state)->next[(object)-(state)->objects])
+
+void rule_parse_nouns(game_state_t* state,
+                      size_t row, size_t col,
+                      int delta_row, int delta_col,
+                      item_flags_t* items,
+                      attr_flags_t* attrs) {
 
     const game_desc_t* desc = state->desc;
 
@@ -105,10 +107,9 @@ void parse_nouns(game_state_t* state,
 
         int hit = 0;
 
-        for (object_index_t oidx=state->map[map_offset];
-             oidx!=0; oidx = state->next[oidx]) {
+        for (object_t* object=state->map[map_offset];
+             object != NULL; object = OBJECT_NEXT(state, object)) {
 
-            const object_t* object = state->objects + oidx;
             assert(object->row == row && object->col == col);
 
             int t = GET_TYPE(object->type_subtype);
@@ -155,36 +156,52 @@ void game_state_init(game_state_t* state,
 
     state->desc = desc;
     state->objects = objects;
+
+    game_update_map(state);
+    game_update_rules(state);
+
+}
+
+void game_update_map(game_state_t* state) {
+
+    const game_desc_t* desc = state->desc;
     
-    memset(state->next, 0, sizeof(object_index_t)*desc->max_objects);
-    memset(state->map, 0, sizeof(object_index_t)*desc->map_size);
-    memset(state->attrs, 0, sizeof(attr_flags_t)*(desc->num_item_types+1));
-    memset(state->xforms, 0, sizeof(uint8_t)*(desc->num_item_types));
+    memset(state->next, 0, sizeof(object_t*)*desc->max_objects);
+    memset(state->map, 0, sizeof(object_t*)*desc->map_size);
 
     // fill in map
-    for (size_t oidx=1; oidx<=desc->max_objects; ++oidx) {
+    for (size_t oidx=0; oidx<desc->max_objects; ++oidx) {
 
-        object_t* object = objects + oidx;
+        object_t* object = state->objects + oidx;
         
         if (object->type_subtype) {
-
+            
             size_t map_offset = MAP_OFFSET(object->row, object->col, desc->cols);
             assert(map_offset < desc->map_size);
 
             // see what was there before
-            object_index_t prev_in_cell = state->map[map_offset];
+            object_t* prev_in_cell = state->map[map_offset];
 
             state->next[oidx] = prev_in_cell;
-            state->map[map_offset] = oidx;
+            state->map[map_offset] = object;
                 
         }
         
     }
 
+}
+
+void game_update_rules(game_state_t* state) {
+
+    const game_desc_t* desc = state->desc;
+    
+    memset(state->attrs, 0, sizeof(attr_flags_t)*(desc->num_item_types+1));
+    memset(state->xforms, 0, sizeof(uint8_t)*(desc->num_item_types));
+    
     // map is initialized, now go and look at words
-    for (size_t oidx=1; oidx<=desc->max_objects; ++oidx) {
+    for (size_t oidx=0; oidx<desc->max_objects; ++oidx) {
         
-        object_t* object = objects + oidx;
+        object_t* object = state->objects + oidx;
 
         // check for IS
         if (!IS_KEYWORD(object->type_subtype, KEYWORD_IS)) {
@@ -202,17 +219,17 @@ void game_state_init(game_state_t* state,
             item_flags_t pred_items = 0;
             attr_flags_t pred_attrs = 0;
                 
-            parse_nouns(state,
-                        object->row, object->col,
-                        -delta_row[i], -delta_col[i],
-                        &subject_items, NULL);
+            rule_parse_nouns(state,
+                             object->row, object->col,
+                             -delta_row[i], -delta_col[i],
+                             &subject_items, NULL);
 
             if (!subject_items) { continue; }
 
-            parse_nouns(state,
-                        object->row, object->col,
-                        delta_row[i], delta_col[i],
-                        &pred_items, &pred_attrs);
+            rule_parse_nouns(state,
+                             object->row, object->col,
+                             delta_row[i], delta_col[i],
+                             &pred_items, &pred_attrs);
 
             if (!pred_items && !pred_attrs) { continue; }
 
@@ -410,7 +427,7 @@ void game_parse(const char* filename,
            (int)desc->max_objects, (int)desc->num_item_types);
            
     cgrid_offset = 0;
-    size_t object_idx = 1;
+    size_t oidx = 0;
 
     object_t* objects = game_objects_alloc(desc->max_objects);
 
@@ -423,7 +440,7 @@ void game_parse(const char* filename,
                 continue;
             }
 
-            object_t* object = objects + object_idx++;
+            object_t* object = objects + oidx++;
 
             object->row = i;
             object->col = j;
@@ -493,16 +510,14 @@ void game_print(const game_state_t* state) {
         
         for (size_t j=0; j<desc->cols; ++j, ++map_offset) {
 
-            object_index_t oidx = state->map[map_offset];
+            const object_t* object = state->map[map_offset];
 
-            if (oidx == 0) {
+            if (!object) {
                 
                 printf(" ");
                 
             } else {
                 
-                const object_t* object = state->objects + oidx;
-
                 int t = GET_TYPE(object->type_subtype);
                 int s = GET_SUBTYPE(object->type_subtype);
 

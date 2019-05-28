@@ -81,7 +81,6 @@ typedef enum input_type {
 } input_type_t;
 
 typedef uint8_t item_type_t;
-typedef uint16_t object_index_t; // 0=blank, -1=barrier
 
 typedef struct object {
     uint8_t type_subtype;
@@ -108,20 +107,22 @@ typedef struct game_desc {
 } game_desc_t;
 
 typedef struct game_state {
-    game_desc_t*    desc;    // managed separately
-    object_t*       objects; // managed separately
-    object_index_t  next[MAX_BOARD_SIZE];    // per-object next pointer for linked lists in cells
-    object_index_t  map[MAX_BOARD_SIZE];     // per-cell object handle for map
-    attr_flags_t    attrs[MAX_ITEM_TYPES+1]; // attributes for each item and then last one is text
-    uint8_t         xforms[MAX_ITEM_TYPES];  // transforms for each item 
+    game_desc_t* desc;    // managed separately
+    object_t*    objects; // managed separately
+    object_t*    next[MAX_BOARD_SIZE];    // per-object next pointer for linked lists in cells
+    object_t*    map[MAX_BOARD_SIZE];     // per-cell object handle for map
+    attr_flags_t attrs[MAX_ITEM_TYPES+1]; // attributes for each item and then last one is text
+    uint8_t      xforms[MAX_ITEM_TYPES];  // transforms for each item (1-based indexing)
 } game_state_t;
 
 object_t* game_objects_alloc(size_t max_objects);
-void game_objects_destroy(object_t* objects);
 
 void game_state_init(game_state_t* state,
                      game_desc_t* desc,
                      object_t* objects);
+
+void game_update_map(game_state_t* state);
+void game_update_rules(game_state_t* state);
 
 void game_print_rules(const game_state_t* state);
 
