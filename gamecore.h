@@ -5,12 +5,29 @@
 #include <stdlib.h>
 
 enum {
+    
     MAX_BOARD_COLS = 35,
     MAX_BOARD_ROWS = 20,
     MAX_BOARD_SIZE = MAX_BOARD_COLS*MAX_BOARD_ROWS,
     MAX_ITEM_TYPES = 26, // one per alphabet letter
     MAX_ITEM_NAME = 31, // name of object
+
+    TYPE_BITS = 4,
+    TYPE_MASK = (1 << TYPE_BITS)-1,
+
+    SUBTYPE_BITS = 4,
+    SUBTYPE_MASK = (1 << SUBTYPE_BITS)-1,
+
+    
 };
+
+#define MAKE_TYPE(type, subtype) ((((type) & TYPE_MASK) << SUBTYPE_BITS) | ((subtype) & SUBTYPE_MASK))
+
+#define GET_TYPE(type_subtype) (((type_subtype) >> SUBTYPE_BITS) & TYPE_MASK)
+#define GET_SUBTYPE(type_subtype) ((type_subtype) & SUBTYPE_MASK)
+#define MAKE_KEYWORD(kw) MAKE_TYPE(OBJECT_KEYWORD, kw)
+#define IS_KEYWORD(type_subtype, kw) ((type_subtype) == MAKE_KEYWORD(kw))
+
 
 typedef enum object_type {
     OBJECT_NONE=0, // zero object struct to make empty space
@@ -35,7 +52,7 @@ typedef enum attr_type {
     ATTR_MOVE,   // >
     ATTR_TELE,   // <
     ATTR_WEAK,   // ,
-    NUM_ATTR_TYPES
+    NUM_ATTR_TYPES // 
 } attr_type_t;
 
 typedef enum keyword_type {
@@ -71,8 +88,9 @@ enum {
 };
 
 typedef struct object {
-    uint8_t type;    // actually object_type above
-    uint8_t subtype; // either item_type, attr_type or word_type
+    uint8_t type_subtype;
+    //uint8_t type;    // actually object_type above
+    //uint8_t subtype; // either item_type, attr_type or word_type
     uint8_t row;     // grid pos
     uint8_t col;    
     uint8_t facing;  // direction_type

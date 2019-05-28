@@ -21,25 +21,24 @@ const char* KEYWORD_NAMES[NUM_KEYWORD_TYPES] = {
 
 //////////////////////////////////////////////////////////////////////
 
-int object_is_keyword(const object_t* object, keyword_type_t wtype) {
-    return object->type == OBJECT_KEYWORD && object->subtype == wtype;
-}
-
 const char* object_str(const game_desc_t* desc,
                        const object_t* object,
                        char buf[MAX_ITEM_NAME+1]) {
 
-    if (object->type == OBJECT_ITEM) {
-        const char* src = desc->item_info[object->subtype].name;
+    int t = GET_TYPE(object->type_subtype);
+    int s = GET_SUBTYPE(object->type_subtype);
+
+    if (t == OBJECT_ITEM) {
+        const char* src = desc->item_info[s].name;
         char* dst = buf;
         while (*src) { *dst++ = tolower(*src++); }
         *dst = 0;
-    } else if (object->type == OBJECT_ITEM_TEXT) {
-        return desc->item_info[object->subtype].name;
-    } else if (object->type == OBJECT_ATTR) {
-        return ATTR_NAMES[object->subtype];
-    } else if (object->type == OBJECT_KEYWORD) {
-        return KEYWORD_NAMES[object->subtype];
+    } else if (t == OBJECT_ITEM_TEXT) {
+        return desc->item_info[s].name;
+    } else if (t == OBJECT_ATTR) {
+        return ATTR_NAMES[s];
+    } else if (t == OBJECT_KEYWORD) {
+        return KEYWORD_NAMES[s];
     } else {
         strcpy(buf, "???");
     }
@@ -125,20 +124,23 @@ void parse_nouns(game_state_t* state,
             const object_t* object = state->objects + oidx;
             assert(object->row == row && object->col == col);
 
+            int t = GET_TYPE(object->type_subtype);
+            int s = GET_SUBTYPE(object->type_subtype);
+
             if (want_noun) {
 
-                if (object->type == OBJECT_ITEM_TEXT) {
-                    *items |= (1 << object->subtype);
+                if (t == OBJECT_ITEM_TEXT) {
+                    *items |= (1 << s);
                     hit = 1;
-                } else if (object_is_keyword(object, KEYWORD_TEXT)) {
+                } else if (IS_KEYWORD(object->type_subtype, KEYWORD_TEXT)) {
                     *items |= (1 << desc->num_item_types);
                     hit = 1;
-                } else if (attrs && object->type == OBJECT_ATTR) {
-                    *attrs |= (1 << object->subtype);
+                } else if (attrs && t == OBJECT_ATTR) {
+                    *attrs |= (1 << s);
                     hit = 1;
                 }
                 
-            } else if (object_is_keyword(object, KEYWORD_AND)) {
+            } else if (IS_KEYWORD(object->type_subtype, KEYWORD_AND)) {
                 hit = 1;
             }
             
@@ -165,7 +167,7 @@ game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
 
         object_t* object = objects + oidx;
         
-        if (object->type != OBJECT_NONE) {
+        if (object->type_subtype) {
 
             size_t map_offset = MAP_OFFSET(object->row, object->col, desc->cols);
             assert(map_offset < desc->map_size);
@@ -186,7 +188,7 @@ game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
         object_t* object = objects + oidx;
 
         // check for IS
-        if (!object_is_keyword(object, KEYWORD_IS)) {
+        if (!IS_KEYWORD(object->type_subtype, KEYWORD_IS)) {
             continue;
         }
 
@@ -430,7 +432,7 @@ void game_parse(const char* filename,
 
             object->row = i;
             object->col = j;
-
+            
             if (isalpha(c)) {
                 
                 int cidx = tolower(c) - 'a';
@@ -439,12 +441,10 @@ void game_parse(const char* filename,
                 assert(item_type < desc->num_item_types);
 
                 if (isupper(c)) {
-                    object->type = OBJECT_ITEM_TEXT;
+                    object->type_subtype = MAKE_TYPE(OBJECT_ITEM_TEXT, item_type);
                 } else {
-                    object->type = OBJECT_ITEM;
+                    object->type_subtype = MAKE_TYPE(OBJECT_ITEM, item_type);
                 }
-
-                object->subtype = item_type;
 
                 continue;
                 
@@ -453,10 +453,8 @@ void game_parse(const char* filename,
             int attr_type = lookup_attr_type(c);
             
             if (attr_type != -1) {
-                
-                object->type = OBJECT_ATTR;
-                object->subtype = attr_type;
 
+                object->type_subtype = MAKE_TYPE(OBJECT_ATTR, attr_type);
                 continue;
                     
             }
@@ -465,11 +463,10 @@ void game_parse(const char* filename,
                     
             if (word_type != -1) {
 
-                object->type = OBJECT_KEYWORD;
-                object->subtype = word_type;
+                object->type_subtype = MAKE_TYPE(OBJECT_KEYWORD, word_type);
                 continue;
 
-            } 
+            }
 
             assert( 0 && "unexpected character in input!" );
 
@@ -510,19 +507,23 @@ void game_print(const game_state_t* state) {
             } else {
                 
                 const object_t* object = state->objects + oidx;
-                assert(object->type != OBJECT_NONE);
 
-                char ochar = ' ';
+                int t = GET_TYPE(object->type_subtype);
+                int s = GET_SUBTYPE(object->type_subtype);
 
-                if (object->type == OBJECT_ITEM) {
-                    ochar = desc->item_info[object->subtype].abbrev;
-                } else if (object->type == OBJECT_ITEM_TEXT) {
-                    ochar = toupper(desc->item_info[object->subtype].abbrev);
-                } else if (object->type == OBJECT_ATTR) {
-                    ochar = ATTR_TYPE_CHARS[object->subtype];
+                char ochar = '?';
+
+                if (t == OBJECT_NONE) {
+                    ochar = ' ';
+                } else if (t == OBJECT_ITEM) {
+                    ochar = desc->item_info[s].abbrev;
+                } else if (t == OBJECT_ITEM_TEXT) {
+                    ochar = toupper(desc->item_info[s].abbrev);
+                } else if (t == OBJECT_ATTR) {
+                    ochar = ATTR_TYPE_CHARS[s];
                 } else {
-                    assert(object->type == OBJECT_KEYWORD);
-                    ochar = KEYWORD_TYPE_CHARS[object->subtype];
+                    assert(t == OBJECT_KEYWORD);
+                    ochar = KEYWORD_TYPE_CHARS[s];
                 }
                 
                 printf("%c", ochar);
