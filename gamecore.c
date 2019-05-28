@@ -9,8 +9,6 @@
 const char ATTR_TYPE_CHARS[NUM_ATTR_TYPES+1] = "@*.+!()[]^_><,";
 const char WORD_TYPE_CHARS[NUM_WORD_TYPES+1] = "=&~%";
 
-const uint8_t NULL_XFORM = (uint8_t)-1;
-
 const char* ATTR_NAMES[NUM_ATTR_TYPES] = {
     "YOU", "WIN", "STOP", "PUSH", "DEFEAT", "HOT", "MELT",
     "OPEN", "SHUT", "FLOAT", "SINK", "MOVE", "TELE", "WEAK"
@@ -73,8 +71,6 @@ game_state_t* game_state_alloc(game_desc_t* desc, object_t* objects) {
     rval->cells = calloc(sizeof(object_handle_t), desc->size);
     rval->attrs = calloc(sizeof(attr_flags_t), desc->num_item_types+1);
     rval->xforms = calloc(sizeof(uint8_t), desc->num_item_types);
-
-    memset(rval->xforms, NULL_XFORM, desc->num_item_types);
 
     return rval;
 
@@ -213,8 +209,8 @@ game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
                 if (sitem < desc->num_item_types) {
                     for (size_t pitem=0; pitem<desc->num_item_types; ++pitem) {
                         if (pred_items & (1 << pitem)) {
-                            if (state->xforms[sitem] == NULL_XFORM || pitem == sitem) {
-                                state->xforms[sitem] = pitem;
+                            if (!state->xforms[sitem] || pitem == sitem) {
+                                state->xforms[sitem] = pitem+1;
                             }
                         }
                     }
@@ -257,9 +253,8 @@ void game_print_rules(const game_state_t* state) {
 
         if (sitem < desc->num_item_types) {
             
-            size_t turn_into = state->xforms[sitem];
-        
-            if (turn_into != NULL_XFORM) {
+            if (state->xforms[sitem]) {
+                int turn_into = state->xforms[sitem] - 1;
                 printf("%s IS %s\n", sname, desc->item_info[turn_into].name);
             }
 
