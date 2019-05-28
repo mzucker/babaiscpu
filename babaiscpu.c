@@ -8,6 +8,8 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    printf("sizeof(object_t) = %d\n", (int)sizeof(object_t));
+
     const char* infile = argv[1];
 
     game_desc_t* desc;

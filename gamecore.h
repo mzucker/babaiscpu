@@ -12,6 +12,14 @@ enum {
     MAX_ITEM_NAME = 31, // name of object
 };
 
+typedef enum object_type {
+    OBJECT_NONE=0, // zero object struct to make empty space
+    OBJECT_ITEM,
+    OBJECT_ITEM_TEXT,
+    OBJECT_ATTR,
+    OBJECT_KEYWORD,
+} object_type_t;
+
 typedef enum attr_type {
     ATTR_YOU,    // @
     ATTR_WIN,    // *
@@ -30,21 +38,14 @@ typedef enum attr_type {
     NUM_ATTR_TYPES
 } attr_type_t;
 
-typedef enum word_type {
-    WORD_IS,   // =
-    WORD_AND,  // &
-    WORD_HAS,  // ~
-    WORD_TEXT, // %
-    NUM_WORD_TYPES
-} word_type_t;
+typedef enum keyword_type {
+    KEYWORD_IS,   // =
+    KEYWORD_AND,  // &
+    KEYWORD_HAS,  // ~
+    KEYWORD_TEXT, // %
+    NUM_KEYWORD_TYPES
+} keyword_type_t;
 
-typedef enum object_type {
-    OBJECT_NONE=0, // zero object struct to make empty space
-    OBJECT_ITEM,
-    OBJECT_ITEM_TEXT,
-    OBJECT_ATTR_TEXT,
-    OBJECT_WORD_TEXT,
-} object_type_t;
 
 typedef enum direction_type {
     DIRECTION_RIGHT,
@@ -63,7 +64,11 @@ typedef enum input_type {
 
 typedef uint8_t item_type_t;
 
-typedef uint16_t object_handle_t; // 0=blank, -1=barrier
+typedef uint16_t object_index_t; // 0=blank, -1=barrier
+
+enum {
+    NULL_OBJECT = (object_index_t)-1
+};
 
 typedef struct object {
     uint8_t type;    // actually object_type above
@@ -84,19 +89,19 @@ typedef struct item_info {
 typedef struct game_desc {
     size_t rows;
     size_t cols;
-    size_t size;
+    size_t map_size;
     size_t max_objects;
     size_t num_item_types;
     item_info_t item_info[MAX_ITEM_TYPES];
 } game_desc_t;
 
 typedef struct game_state {
-    game_desc_t*      desc;    // managed separately
-    object_t*         objects; // managed separately
-    object_handle_t*  next;    // per-object next pointer for cells
-    object_handle_t*  cells;   // per-object 
-    attr_flags_t*     attrs;   // attributes for each item and then last one is text
-    uint8_t*          xforms;  // transforms for each item and then last one is text
+    game_desc_t*    desc;    // managed separately
+    object_t*       objects; // managed separately
+    object_index_t* next;    // per-object next pointer for cells
+    object_index_t* map;   // per-cell object handle for map
+    attr_flags_t*   attrs;   // attributes for each item and then last one is text
+    uint8_t*        xforms;  // transforms for each item 
 } game_state_t;
 
 object_t* game_objects_alloc(size_t max_objects);

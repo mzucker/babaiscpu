@@ -4,19 +4,26 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#define GSZ sizeof(game_state_t)
+
+#define MAP_OFFSET(row, col, stride) ((row)*(stride) + (col))
 
 const char ATTR_TYPE_CHARS[NUM_ATTR_TYPES+1] = "@*.+!()[]^_><,";
-const char WORD_TYPE_CHARS[NUM_WORD_TYPES+1] = "=&~%";
+const char KEYWORD_TYPE_CHARS[NUM_KEYWORD_TYPES+1] = "=&~%";
 
 const char* ATTR_NAMES[NUM_ATTR_TYPES] = {
     "YOU", "WIN", "STOP", "PUSH", "DEFEAT", "HOT", "MELT",
     "OPEN", "SHUT", "FLOAT", "SINK", "MOVE", "TELE", "WEAK"
 };
 
-const char* WORD_NAMES[NUM_WORD_TYPES] = {
+const char* KEYWORD_NAMES[NUM_KEYWORD_TYPES] = {
     "IS", "AND", "HAS", "TEXT"
 };
+
+//////////////////////////////////////////////////////////////////////
+
+int object_is_keyword(const object_t* object, keyword_type_t wtype) {
+    return object->type == OBJECT_KEYWORD && object->subtype == wtype;
+}
 
 const char* object_str(const game_desc_t* desc,
                        const object_t* object,
@@ -29,10 +36,10 @@ const char* object_str(const game_desc_t* desc,
         *dst = 0;
     } else if (object->type == OBJECT_ITEM_TEXT) {
         return desc->item_info[object->subtype].name;
-    } else if (object->type == OBJECT_ATTR_TEXT) {
+    } else if (object->type == OBJECT_ATTR) {
         return ATTR_NAMES[object->subtype];
-    } else if (object->type == OBJECT_WORD_TEXT) {
-        return WORD_NAMES[object->subtype];
+    } else if (object->type == OBJECT_KEYWORD) {
+        return KEYWORD_NAMES[object->subtype];
     } else {
         strcpy(buf, "???");
     }
@@ -40,6 +47,8 @@ const char* object_str(const game_desc_t* desc,
     return buf;
     
 }
+
+//////////////////////////////////////////////////////////////////////
 
 int lookup(const char* str, char c, int maxlen) {
     for (int i=0; i<maxlen; ++i) {
@@ -54,11 +63,20 @@ int lookup_attr_type(char c) {
 }
 
 int lookup_word_type(char c) {
-    return lookup(WORD_TYPE_CHARS, c, NUM_WORD_TYPES);
+    return lookup(KEYWORD_TYPE_CHARS, c, NUM_KEYWORD_TYPES);
 }
+
+//////////////////////////////////////////////////////////////////////
 
 object_t* game_objects_alloc(size_t max_objects) {
     return (object_t*)calloc(sizeof(object_t), max_objects);
+}
+
+void* ffalloc(size_t element_size, size_t count) {
+    size_t len = element_size*count;
+    void* rval = malloc(len);
+    memset(rval, 0xff, len);
+    return rval;
 }
 
 game_state_t* game_state_alloc(game_desc_t* desc, object_t* objects) {
@@ -67,20 +85,22 @@ game_state_t* game_state_alloc(game_desc_t* desc, object_t* objects) {
 
     rval->desc = desc;
     rval->objects = objects;
-    rval->next = calloc(sizeof(object_handle_t), desc->max_objects);
-    rval->cells = calloc(sizeof(object_handle_t), desc->size);
+    rval->next = ffalloc(sizeof(object_index_t), desc->max_objects);
+    rval->map = ffalloc(sizeof(object_index_t), desc->map_size);
     rval->attrs = calloc(sizeof(attr_flags_t), desc->num_item_types+1);
-    rval->xforms = calloc(sizeof(uint8_t), desc->num_item_types);
+    rval->xforms = ffalloc(sizeof(uint8_t), desc->num_item_types);
 
     return rval;
 
 }
 
-void parse_np(game_state_t* state,
-              size_t row, size_t col,
-              int delta_row, int delta_col,
-              item_flags_t* items,
-              attr_flags_t* attrs) {
+//////////////////////////////////////////////////////////////////////
+
+void parse_nouns(game_state_t* state,
+                 size_t row, size_t col,
+                 int delta_row, int delta_col,
+                 item_flags_t* items,
+                 attr_flags_t* attrs) {
 
     const game_desc_t* desc = state->desc;
 
@@ -91,12 +111,16 @@ void parse_np(game_state_t* state,
         row += delta_row;
         col += delta_col;
 
-        size_t map_offset = col + row*desc->cols;
+        if (row >= desc->rows || col >= desc->cols) {
+            break;
+        }
+            
+        size_t map_offset = MAP_OFFSET(row, col, desc->cols);
 
         int hit = 0;
 
-        for (object_handle_t oidx=state->cells[map_offset];
-             oidx!=0; oidx = state->next[oidx]) {
+        for (object_index_t oidx=state->map[map_offset];
+             oidx!=NULL_OBJECT; oidx = state->next[oidx]) {
 
             const object_t* object = state->objects + oidx;
             assert(object->row == row && object->col == col);
@@ -106,21 +130,17 @@ void parse_np(game_state_t* state,
                 if (object->type == OBJECT_ITEM_TEXT) {
                     *items |= (1 << object->subtype);
                     hit = 1;
-                } else if (object->type == OBJECT_WORD_TEXT && object->subtype == WORD_TEXT) {
+                } else if (object_is_keyword(object, KEYWORD_TEXT)) {
                     *items |= (1 << desc->num_item_types);
                     hit = 1;
-                } else if (attrs && object->type == OBJECT_ATTR_TEXT) {
+                } else if (attrs && object->type == OBJECT_ATTR) {
                     *attrs |= (1 << object->subtype);
                     hit = 1;
                 }
                 
-            } else if (object->type == OBJECT_WORD_TEXT && object->subtype == WORD_AND) {
+            } else if (object_is_keyword(object, KEYWORD_AND)) {
                 hit = 1;
             }
-
-            //char buf[64];
-            //printf("parse_np found %s at (%d, %d), hit=%d\n",
-            //object_str(desc, object, buf), (int)row, (int)col, hit);
             
         }
 
@@ -134,42 +154,39 @@ void parse_np(game_state_t* state,
 
 }
 
+//////////////////////////////////////////////////////////////////////
+
 game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
 
     game_state_t* state = game_state_alloc(desc, objects);
 
-    assert(objects[0].type == OBJECT_NONE);
-
-    for (size_t oidx=1; oidx<desc->max_objects; ++oidx) {
+    // fill in map
+    for (size_t oidx=0; oidx<desc->max_objects; ++oidx) {
 
         object_t* object = objects + oidx;
         
         if (object->type != OBJECT_NONE) {
 
-            // always barriers on edge
-            assert(object->col > 0 && object->col < desc->cols - 1);
-            assert(object->row > 0 && object->row < desc->rows - 1);
-                
-            size_t map_offset = object->col + object->row * desc->cols;
-            assert(map_offset < desc->size);
+            size_t map_offset = MAP_OFFSET(object->row, object->col, desc->cols);
+            assert(map_offset < desc->map_size);
 
             // see what was there before
-            object_handle_t prev_in_cell = state->cells[map_offset];
+            object_index_t prev_in_cell = state->map[map_offset];
 
             state->next[oidx] = prev_in_cell;
-            state->cells[map_offset] = oidx;
+            state->map[map_offset] = oidx;
                 
         }
         
     }
 
     // map is initialized, now go and look at words
-    for (size_t oidx=1; oidx<desc->max_objects; ++oidx) {
+    for (size_t oidx=0; oidx<desc->max_objects; ++oidx) {
         
         object_t* object = objects + oidx;
 
         // check for IS
-        if (object->type != OBJECT_WORD_TEXT || object->subtype != WORD_IS) {
+        if (!object_is_keyword(object, KEYWORD_IS)) {
             continue;
         }
 
@@ -184,22 +201,20 @@ game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
             item_flags_t pred_items = 0;
             attr_flags_t pred_attrs = 0;
                 
-            parse_np(state,
-                     object->row, object->col,
-                     -delta_row[i], -delta_col[i],
-                     &subject_items, NULL);
+            parse_nouns(state,
+                        object->row, object->col,
+                        -delta_row[i], -delta_col[i],
+                        &subject_items, NULL);
 
             if (!subject_items) { continue; }
 
-            parse_np(state,
-                     object->row, object->col,
-                     delta_row[i], delta_col[i],
-                     &pred_items, &pred_attrs);
+            parse_nouns(state,
+                        object->row, object->col,
+                        delta_row[i], delta_col[i],
+                        &pred_items, &pred_attrs);
 
             if (!pred_items && !pred_attrs) { continue; }
 
-            //printf("parser found %d|%d|%d\n", subject_items, pred_items, pred_attrs);
-            
             for (size_t sitem=0; sitem<=desc->num_item_types; ++sitem) {
                         
                 if (!(subject_items & (1 << sitem))) { continue; }
@@ -209,8 +224,8 @@ game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
                 if (sitem < desc->num_item_types) {
                     for (size_t pitem=0; pitem<desc->num_item_types; ++pitem) {
                         if (pred_items & (1 << pitem)) {
-                            if (!state->xforms[sitem] || pitem == sitem) {
-                                state->xforms[sitem] = pitem+1;
+                            if (state->xforms[sitem] == 0xff || pitem == sitem) {
+                                state->xforms[sitem] = pitem;
                             }
                         }
                     }
@@ -227,9 +242,13 @@ game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
 
 }
 
+//////////////////////////////////////////////////////////////////////
+
 void game_state_free(game_state_t* state) {
     free(state);
 }
+
+//////////////////////////////////////////////////////////////////////
 
 void game_print_rules(const game_state_t* state) {
 
@@ -252,9 +271,10 @@ void game_print_rules(const game_state_t* state) {
         }
 
         if (sitem < desc->num_item_types) {
+
+            int turn_into = state->xforms[sitem];
             
-            if (state->xforms[sitem]) {
-                int turn_into = state->xforms[sitem] - 1;
+            if (state->xforms[sitem] < desc->num_item_types) {
                 printf("%s IS %s\n", sname, desc->item_info[turn_into].name);
             }
 
@@ -265,6 +285,7 @@ void game_print_rules(const game_state_t* state) {
 
 }
 
+//////////////////////////////////////////////////////////////////////
 
 void game_parse(const char* filename,
                 game_desc_t** pdesc,
@@ -276,9 +297,11 @@ void game_parse(const char* filename,
 
     int item_lookup[26];
     
-    for (int i=0; i<26; ++i) { item_lookup[i] = -1; }
+    memset(item_lookup, 0xff, sizeof(item_lookup));
 
-    // part 1: parse item types: lowercase letter, space, name, newline
+    //////////////////////////////////////////////////
+    // parse items: letter, space, label, newline
+    
     while (1) {
         
         int tok = fgetc(istr);
@@ -286,17 +309,21 @@ void game_parse(const char* filename,
         if (tok == '\n') {
             break;
         }
-        
+
+        // letter
         assert(isalpha(tok) && islower(tok));
+
+        // space
         assert(fgetc(istr) == ' ');
             
         int item_type = desc->num_item_types++;
-        assert(item_type < MAX_ITEM_TYPES);
+        assert(item_type < MAX_ITEM_TYPES); // TODO: throw error
 
+        // set up info
         item_info_t* info = desc->item_info + item_type;
-
         info->abbrev = tok;
 
+        // parse label
         size_t len=0;
 
         while (1) {
@@ -308,77 +335,94 @@ void game_parse(const char* filename,
         }
 
         assert(len > 0);
+
+        // null-terminate
         info->name[len] = 0;
 
         printf("item type %d has abbrev %c and name '%s'\n",
                item_type, info->abbrev, info->name);
 
+        // set item lookup by letter
         item_lookup[info->abbrev-'a'] = item_type;
 
     }
 
-    char* cgrid = (char*)malloc(MAX_BOARD_SIZE);
+    //////////////////////////////////////////////////
+    // read rest of file into array of chars
 
-    size_t map_offset = 0;
-    size_t cur_col = 0;
+    size_t padded_cols = 0;
 
-    ++desc->max_objects; // always 1 dummy object
+    int tok;
 
-    while (1) {
-
-        assert(map_offset == desc->cols*desc->rows + cur_col);
-        
-        int tok = fgetc(istr);
-        if (tok == -1) { break; }
-
-        if (tok == '\n') {
-
-            if (!desc->rows) {
-                desc->cols = cur_col;
-            }
-
-            assert(cur_col == desc->cols);
-            
-            ++desc->rows;
-            assert(desc->rows <= MAX_BOARD_ROWS);
-            cur_col = 0;
-            
-            continue;
-            
-        }
-
-        if (tok != '#' && tok != ' ') {
-            ++desc->max_objects;
-        }
-
-        cgrid[map_offset++] = tok;
-        cur_col += 1;
-        assert(cur_col <= MAX_BOARD_COLS);
-
+    // parse a row of hashmarks to get width
+    while ( (tok = fgetc(istr)) == '#' ) {
+        ++padded_cols;
     }
+    assert(tok == '\n');
+    printf("padded width = %d\n", (int)padded_cols);
 
-    desc->size = desc->rows * desc->cols;
+    desc->cols = padded_cols - 2;
+    desc->rows = 0;
+
+    char cgrid[MAX_BOARD_SIZE];
+    size_t cgrid_offset = 0;
+    
+    int final_row = 0;
+    
+    while (!final_row) {
+        
+        for (size_t j=0; j<padded_cols; ++j) {
+            
+            tok = fgetc(istr);
+            
+            assert(tok > 0 && tok != '\n');
+            
+            if (j == 0 || j+1 == padded_cols || final_row) {
+                assert(tok == '#');
+                continue;
+            }
+            
+            if (j == 1 && tok == '#') {
+                final_row = 1;
+                continue;
+            }
+            
+            cgrid[cgrid_offset++] = tok;
+            if (tok != ' ') {
+                ++desc->max_objects;
+            }
+                
+        }
+
+        tok = fgetc(istr);
+        assert(tok == '\n');
+        if (!final_row) { ++desc->rows; }
+        
+    };
+
+    tok = fgetc(istr);
+    assert(tok == -1);
+
+    //////////////////////////////////////////////////
+    // read array of chars into object array
+    
+    desc->map_size = desc->rows * desc->cols;
 
     printf("board is %d rows x %d cols with %d max objects and %d item types\n",
            (int)desc->rows, (int)desc->cols,
            (int)desc->max_objects, (int)desc->num_item_types);
            
-
-    map_offset = 0;
-    size_t object_idx = 1;
+    cgrid_offset = 0;
+    size_t object_idx = 0;
 
     object_t* objects = game_objects_alloc(desc->max_objects);
 
     for (size_t i=0; i<desc->rows; ++i) {
-        
-        for (size_t j=0; j<desc->cols; ++j, ++map_offset) {
+        for (size_t j=0; j<desc->cols; ++j, ++cgrid_offset) {
             
-            char c = cgrid[map_offset];
-
-            if (i == 0 || i+1 == desc->rows || j == 0 || j+1 == desc->cols) {
-                assert(c == '#');
-                continue;
-            } else if (c == ' ') {
+            char c = cgrid[cgrid_offset];
+            
+            if (c == ' ') {
                 continue;
             }
 
@@ -401,44 +445,41 @@ void game_parse(const char* filename,
                 }
 
                 object->subtype = item_type;
+
+                continue;
                 
-            } else {
+            } 
 
-                int attr_type = lookup_attr_type(c);
+            int attr_type = lookup_attr_type(c);
+            
+            if (attr_type != -1) {
                 
-                if (attr_type != -1) {
+                object->type = OBJECT_ATTR;
+                object->subtype = attr_type;
+
+                continue;
                     
-                    object->type = OBJECT_ATTR_TEXT;
-                    object->subtype = attr_type;
-                    
-                } else {
-
-                    int word_type = lookup_word_type(c);
-                    
-                    if (word_type != -1) {
-
-                        object->type = OBJECT_WORD_TEXT;
-                        object->subtype = word_type;
-
-                    } else {
-
-                        assert( 0 && "unexpected character in input!" );
-
-                    }
-
-                }
-                        
             }
 
-        }
-            
-        
-    }
+            int word_type = lookup_word_type(c);
+                    
+            if (word_type != -1) {
 
-    free(cgrid);
+                object->type = OBJECT_KEYWORD;
+                object->subtype = word_type;
+                continue;
+
+            } 
+
+            assert( 0 && "unexpected character in input!" );
+
+        }
+
+    }
 
     *pdesc = desc;
     *pobjects = objects;
+
     
 }
 
@@ -449,17 +490,20 @@ void game_print(const game_state_t* state) {
 
     size_t map_offset = 0;
 
+    for (size_t j=0; j<desc->cols+2; ++j) {
+        printf("#");
+    }
+    printf("\n");
+    
     for (size_t i=0; i<desc->rows; ++i) {
+
+        printf("#");
+        
         for (size_t j=0; j<desc->cols; ++j, ++map_offset) {
 
-            object_handle_t oidx = state->cells[map_offset];
+            object_index_t oidx = state->map[map_offset];
 
-            if (i == 0 || j == 0 || i == desc->rows - 1 || j == desc->cols - 1) {
-                
-                assert(oidx == 0);
-                printf("#");
-                
-            } else if (!oidx) {
+            if (oidx == NULL_OBJECT) {
                 
                 printf(" ");
                 
@@ -474,11 +518,11 @@ void game_print(const game_state_t* state) {
                     ochar = desc->item_info[object->subtype].abbrev;
                 } else if (object->type == OBJECT_ITEM_TEXT) {
                     ochar = toupper(desc->item_info[object->subtype].abbrev);
-                } else if (object->type == OBJECT_ATTR_TEXT) {
+                } else if (object->type == OBJECT_ATTR) {
                     ochar = ATTR_TYPE_CHARS[object->subtype];
                 } else {
-                    assert(object->type == OBJECT_WORD_TEXT);
-                    ochar = WORD_TYPE_CHARS[object->subtype];
+                    assert(object->type == OBJECT_KEYWORD);
+                    ochar = KEYWORD_TYPE_CHARS[object->subtype];
                 }
                 
                 printf("%c", ochar);
@@ -487,8 +531,13 @@ void game_print(const game_state_t* state) {
             
         }
 
-        printf("\n");
+        printf("#\n");
         
     }
+
+    for (size_t j=0; j<desc->cols+2; ++j) {
+        printf("#");
+    }
+    printf("\n");
     
 }
