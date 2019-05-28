@@ -81,12 +81,7 @@ typedef enum input_type {
 } input_type_t;
 
 typedef uint8_t item_type_t;
-
 typedef uint16_t object_index_t; // 0=blank, -1=barrier
-
-enum {
-    NULL_OBJECT = (object_index_t)-1
-};
 
 typedef struct object {
     uint8_t type_subtype;
@@ -122,7 +117,7 @@ typedef struct game_state {
 } game_state_t;
 
 object_t* game_objects_alloc(size_t max_objects);
-
+void game_objects_destroy(object_t* objects);
 
 void game_state_init(game_state_t* state,
                      game_desc_t* desc,

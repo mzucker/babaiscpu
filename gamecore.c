@@ -67,16 +67,17 @@ int lookup_word_type(char c) {
 
 //////////////////////////////////////////////////////////////////////
 
+
+// objects uses 1-based indexing
 object_t* game_objects_alloc(size_t max_objects) {
-    return (object_t*)calloc(sizeof(object_t), max_objects);
+    object_t* base = (object_t*)calloc(sizeof(object_t), max_objects);
+    return base - 1;
 }
 
-void* ffalloc(size_t element_size, size_t count) {
-    size_t len = element_size*count;
-    void* rval = malloc(len);
-    memset(rval, 0xff, len);
-    return rval;
+void game_objects_destroy(object_t* objects) {
+    free(objects + 1);
 }
+
 
 
 //////////////////////////////////////////////////////////////////////
@@ -105,7 +106,7 @@ void parse_nouns(game_state_t* state,
         int hit = 0;
 
         for (object_index_t oidx=state->map[map_offset];
-             oidx!=NULL_OBJECT; oidx = state->next[oidx]) {
+             oidx!=0; oidx = state->next[oidx]) {
 
             const object_t* object = state->objects + oidx;
             assert(object->row == row && object->col == col);
@@ -155,13 +156,13 @@ void game_state_init(game_state_t* state,
     state->desc = desc;
     state->objects = objects;
     
-    memset(state->next, 0xff, sizeof(object_index_t)*desc->max_objects);
-    memset(state->map, 0xff, sizeof(object_index_t)*desc->map_size);
+    memset(state->next, 0, sizeof(object_index_t)*desc->max_objects);
+    memset(state->map, 0, sizeof(object_index_t)*desc->map_size);
     memset(state->attrs, 0, sizeof(attr_flags_t)*(desc->num_item_types+1));
-    memset(state->xforms, 0xff, sizeof(uint8_t)*(desc->num_item_types));
+    memset(state->xforms, 0, sizeof(uint8_t)*(desc->num_item_types));
 
     // fill in map
-    for (size_t oidx=0; oidx<desc->max_objects; ++oidx) {
+    for (size_t oidx=1; oidx<=desc->max_objects; ++oidx) {
 
         object_t* object = objects + oidx;
         
@@ -181,7 +182,7 @@ void game_state_init(game_state_t* state,
     }
 
     // map is initialized, now go and look at words
-    for (size_t oidx=0; oidx<desc->max_objects; ++oidx) {
+    for (size_t oidx=1; oidx<=desc->max_objects; ++oidx) {
         
         object_t* object = objects + oidx;
 
@@ -224,8 +225,8 @@ void game_state_init(game_state_t* state,
                 if (sitem < desc->num_item_types) {
                     for (size_t pitem=0; pitem<desc->num_item_types; ++pitem) {
                         if (pred_items & (1 << pitem)) {
-                            if (state->xforms[sitem] == 0xff || pitem == sitem) {
-                                state->xforms[sitem] = pitem;
+                            if (state->xforms[sitem] == 0 || pitem == sitem) {
+                                state->xforms[sitem] = pitem+1;
                             }
                         }
                     }
@@ -271,9 +272,9 @@ void game_print_rules(const game_state_t* state) {
         if (sitem < desc->num_item_types) {
 
             int turn_into = state->xforms[sitem];
-            
-            if (state->xforms[sitem] < desc->num_item_types) {
-                printf("%s IS %s\n", sname, desc->item_info[turn_into].name);
+
+            if (turn_into) {
+                printf("%s IS %s\n", sname, desc->item_info[turn_into-1].name);
             }
             
         }
@@ -409,7 +410,7 @@ void game_parse(const char* filename,
            (int)desc->max_objects, (int)desc->num_item_types);
            
     cgrid_offset = 0;
-    size_t object_idx = 0;
+    size_t object_idx = 1;
 
     object_t* objects = game_objects_alloc(desc->max_objects);
 
@@ -430,8 +431,8 @@ void game_parse(const char* filename,
             if (isalpha(c)) {
                 
                 int cidx = tolower(c) - 'a';
-                int item_type = item_lookup[cidx];
                 
+                int item_type = item_lookup[cidx];
                 assert(item_type < desc->num_item_types);
 
                 if (isupper(c)) {
@@ -494,7 +495,7 @@ void game_print(const game_state_t* state) {
 
             object_index_t oidx = state->map[map_offset];
 
-            if (oidx == NULL_OBJECT) {
+            if (oidx == 0) {
                 
                 printf(" ");
                 
