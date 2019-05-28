@@ -78,20 +78,6 @@ void* ffalloc(size_t element_size, size_t count) {
     return rval;
 }
 
-game_state_t* game_state_alloc(game_desc_t* desc, object_t* objects) {
-
-    game_state_t* rval = malloc(sizeof(game_state_t));
-
-    rval->desc = desc;
-    rval->objects = objects;
-    rval->next = ffalloc(sizeof(object_index_t), desc->max_objects);
-    rval->map = ffalloc(sizeof(object_index_t), desc->map_size);
-    rval->attrs = calloc(sizeof(attr_flags_t), desc->num_item_types+1);
-    rval->xforms = ffalloc(sizeof(uint8_t), desc->num_item_types);
-
-    return rval;
-
-}
 
 //////////////////////////////////////////////////////////////////////
 
@@ -158,9 +144,21 @@ void parse_nouns(game_state_t* state,
 
 //////////////////////////////////////////////////////////////////////
 
-game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
+void game_state_init(game_state_t* state,
+                     game_desc_t* desc,
+                     object_t* objects) {
 
-    game_state_t* state = game_state_alloc(desc, objects);
+    assert(NUM_ATTR_TYPES <= (1 << SUBTYPE_BITS));
+    assert(NUM_ATTR_TYPES <= sizeof(attr_flags_t)*8);
+    assert(MAX_ITEM_TYPES <= sizeof(item_flags_t)*8);
+
+    state->desc = desc;
+    state->objects = objects;
+    
+    memset(state->next, 0xff, sizeof(object_index_t)*desc->max_objects);
+    memset(state->map, 0xff, sizeof(object_index_t)*desc->map_size);
+    memset(state->attrs, 0, sizeof(attr_flags_t)*(desc->num_item_types+1));
+    memset(state->xforms, 0xff, sizeof(uint8_t)*(desc->num_item_types));
 
     // fill in map
     for (size_t oidx=0; oidx<desc->max_objects; ++oidx) {
@@ -240,8 +238,6 @@ game_state_t* game_state_init(game_desc_t* desc, object_t* objects) {
 
     } // for each object
 
-    return state;
-
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -279,10 +275,8 @@ void game_print_rules(const game_state_t* state) {
             if (state->xforms[sitem] < desc->num_item_types) {
                 printf("%s IS %s\n", sname, desc->item_info[turn_into].name);
             }
-
-
+            
         }
-        
     }
 
 }

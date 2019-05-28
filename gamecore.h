@@ -21,13 +21,14 @@ enum {
     
 };
 
-#define MAKE_TYPE(type, subtype) ((((type) & TYPE_MASK) << SUBTYPE_BITS) | ((subtype) & SUBTYPE_MASK))
+#define MAKE_TYPE(type, subtype) \
+    ( (((type) & TYPE_MASK) << SUBTYPE_BITS) | \
+      ((subtype) & SUBTYPE_MASK) )
 
 #define GET_TYPE(type_subtype) (((type_subtype) >> SUBTYPE_BITS) & TYPE_MASK)
 #define GET_SUBTYPE(type_subtype) ((type_subtype) & SUBTYPE_MASK)
 #define MAKE_KEYWORD(kw) MAKE_TYPE(OBJECT_KEYWORD, kw)
 #define IS_KEYWORD(type_subtype, kw) ((type_subtype) == MAKE_KEYWORD(kw))
-
 
 typedef enum object_type {
     OBJECT_NONE=0, // zero object struct to make empty space
@@ -89,8 +90,6 @@ enum {
 
 typedef struct object {
     uint8_t type_subtype;
-    //uint8_t type;    // actually object_type above
-    //uint8_t subtype; // either item_type, attr_type or word_type
     uint8_t row;     // grid pos
     uint8_t col;    
     uint8_t facing;  // direction_type
@@ -116,15 +115,18 @@ typedef struct game_desc {
 typedef struct game_state {
     game_desc_t*    desc;    // managed separately
     object_t*       objects; // managed separately
-    object_index_t* next;    // per-object next pointer for cells
-    object_index_t* map;   // per-cell object handle for map
-    attr_flags_t*   attrs;   // attributes for each item and then last one is text
-    uint8_t*        xforms;  // transforms for each item 
+    object_index_t  next[MAX_BOARD_SIZE];    // per-object next pointer for linked lists in cells
+    object_index_t  map[MAX_BOARD_SIZE];     // per-cell object handle for map
+    attr_flags_t    attrs[MAX_ITEM_TYPES+1]; // attributes for each item and then last one is text
+    uint8_t         xforms[MAX_ITEM_TYPES];  // transforms for each item 
 } game_state_t;
 
 object_t* game_objects_alloc(size_t max_objects);
 
-game_state_t* game_state_init(game_desc_t* desc, object_t* objects);
+
+void game_state_init(game_state_t* state,
+                     game_desc_t* desc,
+                     object_t* objects);
 
 void game_print_rules(const game_state_t* state);
 
